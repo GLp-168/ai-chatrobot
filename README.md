@@ -12,6 +12,7 @@ A modern AI chatbot built with FastAPI.
 
 - Chat API
 - In-memory multi-turn conversation context
+- Configurable system prompt and history window
 - RESTful
 - Easy to extend
 
@@ -26,6 +27,7 @@ A modern AI chatbot built with FastAPI.
 - [ ] Frontend UI
 - [ ] Docker support
 - [x] In-memory conversation history
+- [x] Prompt management pipeline
 - [ ] Persistent conversation history
 - [x] Unit tests
 - [ ] GitHub Actions
