@@ -34,3 +34,6 @@ class Settings:
 
     # 这是消息条数上限，不是假装精确的 Token 上限。真正 Token 预算将在后续演进。
     MAX_HISTORY_MESSAGES = _get_positive_int("MAX_HISTORY_MESSAGES", default=21)
+
+    # 防止模型重复请求工具形成死循环；一次工具轮次可以包含多个并列调用。
+    MAX_TOOL_ROUNDS = _get_positive_int("MAX_TOOL_ROUNDS", default=3)
