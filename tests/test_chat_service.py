@@ -6,6 +6,8 @@ from collections.abc import Sequence
 from copy import deepcopy
 from typing import Any
 
+from app.knowledge.models import KnowledgeChunk
+from app.knowledge.retriever import BM25Retriever
 from app.memory.chat_memory import ChatMemory
 from app.prompts.prompt_manager import PromptManager
 from app.schemas.message import ChatMessage
@@ -13,6 +15,7 @@ from app.schemas.model import ModelResponse
 from app.schemas.tool import ToolCall, ToolDefinition
 from app.services.chat_service import ChatService, ToolRoundLimitError
 from app.tools.registry import ToolRegistry
+from app.tools.knowledge_search import KnowledgeSearchTool
 
 
 class FakeProvider:
@@ -181,6 +184,59 @@ class ChatServiceTestCase(unittest.TestCase):
             memory.get_messages(),
             [{"role": "user", "content": "不断调用工具"}],
         )
+
+    def test_knowledge_tool_results_flow_back_with_citation_metadata(self) -> None:
+        knowledge_tool = KnowledgeSearchTool(
+            retriever=BM25Retriever(
+                [
+                    KnowledgeChunk(
+                        id="chunk-memory",
+                        source="architecture.md",
+                        position=0,
+                        content="工具轨迹不写入 Memory，而是进入独立审计日志。",
+                    )
+                ]
+            )
+        )
+        provider = FakeProvider(
+            [
+                ModelResponse(
+                    tool_calls=(
+                        ToolCall(
+                            id="call-rag",
+                            name="search_knowledge_base",
+                            arguments='{"query": "工具轨迹 Memory"}',
+                        ),
+                    )
+                ),
+                ModelResponse(
+                    content="工具轨迹不写入 Memory。[architecture.md#chunk-memory]"
+                ),
+            ]
+        )
+        memory = ChatMemory()
+        service = ChatService(
+            provider=provider,
+            memory=memory,
+            prompt_manager=self.prompt_manager,
+            tool_registry=ToolRegistry([knowledge_tool]),
+        )
+
+        reply = service.chat("为什么工具轨迹不写入 Memory？")
+
+        tool_payload = json.loads(
+            provider.received_messages[1][-1]["content"]
+        )["result"]
+        self.assertEqual(
+            tool_payload["matches"][0]["source"],
+            "architecture.md",
+        )
+        self.assertEqual(
+            tool_payload["matches"][0]["chunk_id"],
+            "chunk-memory",
+        )
+        self.assertIn("architecture.md#chunk-memory", reply)
+        self.assertEqual(memory.get_messages()[-1]["content"], reply)
 
     def test_empty_model_response_is_rejected(self) -> None:
         service = ChatService(

@@ -4,3 +4,5 @@ openai
 python-dotenv
 pydantic
 tzdata
+jieba
+rank-bm25

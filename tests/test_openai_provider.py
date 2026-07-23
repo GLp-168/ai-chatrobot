@@ -8,13 +8,16 @@ from app.schemas.tool import ToolDefinition
 
 
 class FakeCompletions:
-    def __init__(self, response: object) -> None:
-        self._response = response
+    def __init__(self, response: object | list[object]) -> None:
+        responses = response if isinstance(response, list) else [response]
+        self._responses = iter(responses)
         self.request: dict | None = None
+        self.call_count = 0
 
     def create(self, **kwargs: object) -> object:
         self.request = kwargs
-        return self._response
+        self.call_count += 1
+        return next(self._responses)
 
 
 class FakeClient:
@@ -25,11 +28,26 @@ class FakeClient:
 
 class OpenAIProviderTestCase(unittest.TestCase):
     def test_missing_choices_is_reported_as_provider_error(self) -> None:
-        client = FakeClient(SimpleNamespace(choices=None))
-        provider = OpenAIProvider(client=client)
+        empty = SimpleNamespace(choices=None)
+        client = FakeClient([empty, empty])
+        provider = OpenAIProvider(client=client, empty_response_retries=1)
 
         with self.assertRaisesRegex(InvalidModelResponseError, "没有可用的 choices"):
             provider.chat([{"role": "user", "content": "你好"}])
+
+        self.assertEqual(client.completions.call_count, 2)
+
+    def test_empty_response_is_retried_before_succeeding(self) -> None:
+        empty = SimpleNamespace(choices=None)
+        message = SimpleNamespace(content="重试成功", tool_calls=None)
+        valid = SimpleNamespace(choices=[SimpleNamespace(message=message)])
+        client = FakeClient([empty, valid])
+        provider = OpenAIProvider(client=client, empty_response_retries=1)
+
+        result = provider.chat([{"role": "user", "content": "你好"}])
+
+        self.assertEqual(result.content, "重试成功")
+        self.assertEqual(client.completions.call_count, 2)
 
     def test_text_response_is_converted(self) -> None:
         message = SimpleNamespace(content="普通回答", tool_calls=None)
