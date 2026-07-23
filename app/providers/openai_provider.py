@@ -17,12 +17,23 @@ class InvalidModelResponseError(RuntimeError):
 class OpenAIProvider:
     """把应用内部的聊天消息转换为一次 OpenAI 兼容 API 调用。"""
 
-    def __init__(self, client: OpenAI | None = None) -> None:
+    def __init__(
+        self,
+        client: OpenAI | None = None,
+        empty_response_retries: int | None = None,
+    ) -> None:
         # client 参数用于单元测试注入假 SDK；正式运行时才创建真实客户端。
         self.client = client or OpenAI(
             api_key=Settings.OPENAI_API_KEY,
             base_url=Settings.OPENAI_BASE_URL,
         )
+        self._empty_response_retries = (
+            empty_response_retries
+            if empty_response_retries is not None
+            else Settings.MODEL_EMPTY_RESPONSE_RETRIES
+        )
+        if self._empty_response_retries < 0:
+            raise ValueError("empty_response_retries 不能小于 0")
 
     def chat(
         self,
@@ -37,9 +48,14 @@ class OpenAIProvider:
         if tools:
             request["tools"] = list(tools)
 
-        response = self.client.chat.completions.create(**request)
-        if not response.choices:
-            raise InvalidModelResponseError("模型响应中没有可用的 choices")
+        for _ in range(self._empty_response_retries + 1):
+            response = self.client.chat.completions.create(**request)
+            if response.choices:
+                break
+        else:
+            raise InvalidModelResponseError(
+                "模型响应中没有可用的 choices，且空响应重试已耗尽"
+            )
 
         message = response.choices[0].message
 
